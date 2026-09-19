@@ -1,6 +1,6 @@
 addon.name = 'chainbuilder';
 addon.author = 'Laudout';
-addon.version = '2.3.2';
+addon.version = '2.4.0';
 addon.desc = 'ChainBuilder skillchain calculator.';
 addon.link = '';
 
@@ -53,12 +53,6 @@ end
       /sc
       /sc show
       /sc hide
-      /sc weapon <type>
-      /sc start <weaponskill>
-      /sc target <property|any>
-      /sc depth <2-8>
-      /sc clear
-      /sc help
 --]]
 
 local state = {
@@ -149,6 +143,70 @@ local ws = {
         {'Thunder', {'Impaction'}},
         {'Light', {'Transfixion'}},
         {'Dark', {'Compression'}},
+    },
+
+    ['Blue Magic'] = {
+        {'Final Sting', {'Fusion'}},
+        -- Complete level 1-75 physical Blue Magic skillchain-property list.
+        -- These are available as a closer-only Step 2 option when Step 1 is Sword or Club.
+        -- Chain Affinity / Azure Lore is required in-game for the spell to participate in a skillchain.
+        {'Foot Kick', {'Detonation'}},
+        {'Power Attack', {'Reverberation'}},
+        {'Sprout Smack', {'Reverberation'}},
+        {'Wild Oats', {'Transfixion'}},
+        {'Queasyshroom', {'Compression'}},
+        {'Battle Dance', {'Impaction'}},
+        {'Head Butt', {'Impaction'}},
+        {'Feather Storm', {'Transfixion'}},
+        {'Helldive', {'Transfixion'}},
+        {'Bludgeon', {'Liquefaction'}},
+        {'Claw Cyclone', {'Scission'}},
+        {'Screwdriver', {'Transfixion','Scission'}},
+        {'Grand Slam', {'Induration'}},
+        {'Smite of Rage', {'Detonation'}},
+        {'Pinecone Bomb', {'Liquefaction'}},
+        {'Jet Stream', {'Impaction'}},
+        {'Uppercut', {'Liquefaction','Impaction'}},
+        {'Terror Touch', {'Compression','Reverberation'}},
+        {'Mandibular Bite', {'Induration'}},
+        {'Sickle Slash', {'Compression'}},
+        {'Death Scissors', {'Compression','Reverberation'}},
+        {'Dimensional Death', {'Transfixion','Impaction'}},
+        {'Spiral Spin', {'Transfixion'}},
+        {'Seedspray', {'Induration','Detonation'}},
+        {'Body Slam', {'Impaction'}},
+        {'Frenetic Rip', {'Induration'}},
+        {'Frypan', {'Impaction'}},
+        {'Hydro Shot', {'Reverberation'}},
+        {'Spinal Cleave', {'Scission','Detonation'}},
+        {'Hysteric Barrage', {'Detonation'}},
+        {'Tail Slap', {'Reverberation'}},
+        {'Asuran Claws', {'Liquefaction','Impaction'}},
+        {'Cannonball', {'Fusion'}},
+        {'Disseverment', {'Distortion'}},
+        {'Sub-zero Smash', {'Fragmentation'}},
+        {'Ram Charge', {'Fragmentation'}},
+        {'Vertical Cleave', {'Gravitation'}},
+        -- CatsEyeXI custom level-75 physical Blue Magic additions.
+        {'Quadratic Continuum', {'Distortion'}},
+        {'Empty Thrash', {'Compression','Scission'}},
+        {'Heavy Strike', {'Fragmentation'}},
+        {'Barbed Crescent', {'Distortion','Scission'}},
+    },
+
+    ['Automaton'] = {
+        {'Slapstick', {'Reverberation','Impaction'}},
+        {'Knockout', {'Scission','Detonation'}},
+        {'Magic Mortar', {'Fusion'}},
+        {'Chimera Ripper', {'Detonation','Induration'}},
+        {'String Clipper', {'Scission'}},
+        {'Cannibal Blade', {'Compression','Reverberation'}},
+        {'Bone Crusher', {'Fragmentation'}},
+        {'String Shredder', {'Distortion','Scission'}},
+        {'Arcuballista', {'Liquefaction','Transfixion'}},
+        {'Daze', {'Impaction','Transfixion'}},
+        {'Armor Piercer', {'Gravitation'}},
+        {'Armor Shatterer', {'Fusion','Impaction'}},
     },
 
     ['Hand-to-Hand'] = {
@@ -371,7 +429,7 @@ local ws = {
 };
 
 local weapon_names = {};
-for k,_ in pairs(ws) do weapon_names[#weapon_names+1] = k; end
+for k,_ in pairs(ws) do if k ~= 'Blue Magic' and k ~= 'Automaton' then weapon_names[#weapon_names+1] = k; end end
 table.sort(weapon_names);
 
 local function ws_by_name(name)
@@ -505,83 +563,27 @@ local function set_weapon(name)
     return false;
 end
 
-local function help()
-    print(chat.header('ChainBuilder') .. chat.message('Commands:'));
-    print(chat.message('/sc show | hide'));
-    print(chat.message('/sc weapon <type>'));
-    print(chat.message('/sc start <weapon skill>'));
-    print(chat.message('/sc target <Any|Light|Darkness|Fusion|Fragmentation|Distortion|Gravitation>'));
-    print(chat.message('/sc closer <Any Weapon|weapon type>'));
-    print(chat.message('/sc depth <2-8>'));
-    print(chat.message('/sc clear'));
-end
-
 ashita.events.register('command', 'skillchains_command_cb', function(e)
     local args = e.command:args();
     if #args == 0 or not args[1]:any('/sc', '/chainbuilder') then return; end
     e.blocked = true;
 
+    -- /sc or /chainbuilder toggles the window.
     if #args == 1 then
         state.visible[1] = not state.visible[1];
         return;
     end
 
+    -- Keep only the simple show / hide commands.
     local sub = args[2]:lower();
-    if sub == 'show' then state.visible[1] = true; return; end
-    if sub == 'hide' then state.visible[1] = false; return; end
-    if sub == 'help' then help(); return; end
-    if sub == 'clear' then
-        state.target = 'Any';
-        state.depth[1] = 5;
+    if sub == 'show' then
+        state.visible[1] = true;
         return;
     end
-    if sub == 'depth' and args[3] then
-        local n = tonumber(args[3]);
-        if n then state.depth[1] = math.max(2, math.min(8, math.floor(n))); end
+    if sub == 'hide' then
+        state.visible[1] = false;
         return;
     end
-
-    -- Preserve spaces in names by rebuilding the tail.
-    local tail = {};
-    for i = 3, #args do tail[#tail+1] = args[i]; end
-    local value = table.concat(tail, ' ');
-
-    if sub == 'weapon' and value ~= '' then
-        if not set_weapon(value) then
-            print(chat.header('ChainBuilder') .. chat.error('Unknown weapon type: ') .. chat.message(value));
-        end
-        return;
-    end
-    if sub == 'start' and value ~= '' then
-        local entry = ws_by_name(value);
-        if entry then
-            state.start_ws = entry[1];
-        else
-            print(chat.header('ChainBuilder') .. chat.error('Unknown WS: ') .. chat.message(value));
-        end
-        return;
-    end
-    if sub == 'target' and value ~= '' then
-        local targets = {'Any','Light','Darkness','Fusion','Fragmentation','Distortion','Gravitation'};
-        for _,v in ipairs(targets) do
-            if v:lower() == value:lower() then state.target = v; return; end
-        end
-        print(chat.header('ChainBuilder') .. chat.error('Unknown target property.'));
-        return;
-    end
-    if sub == 'closer' and value ~= '' then
-        if value:lower() == 'any' or value:lower() == 'any weapon' then
-            state.closer_weapon = 'Any Weapon';
-            return;
-        end
-        for _,w in ipairs(weapon_names) do
-            if w:lower() == value:lower() then state.closer_weapon = w; return; end
-        end
-        print(chat.header('ChainBuilder') .. chat.error('Unknown closer weapon type.'));
-        return;
-    end
-
-    help();
 end);
 
 
@@ -639,17 +641,33 @@ local function ensure_slot_ws(slot)
 end
 local function weapon_combo(id,slot)
     local current=slot_weapons[slot];
+
+    -- Blue Magic and Automaton are closer/follow-up choices only.
+    -- They are available in Steps 2, 3 and 4, but never as Step 1.
+    -- All normal weapon choices remain available at every step.
+    local choices = {};
+    for _, w in ipairs(weapon_names) do choices[#choices+1] = w; end
+
+    if slot >= 2 then
+        choices[#choices+1] = 'Blue Magic';
+        choices[#choices+1] = 'Automaton';
+    end
+
     if imgui.BeginCombo(id,current) then
-        for _,w in ipairs(weapon_names) do
+        for _,w in ipairs(choices) do
             if imgui.Selectable(w,current==w) then
-                slot_weapons[slot]=w; slot_ws[slot]=''; ensure_slot_ws(slot);
-                if slot==1 then state.weapon=w end
-                if slot==2 then state.closer_weapon=w end
+                slot_weapons[slot]=w;
+                slot_ws[slot]='';
+                ensure_slot_ws(slot);
+
+                if slot==1 then state.weapon=w; end
+                if slot==2 then state.closer_weapon=w; end
             end
         end
         imgui.EndCombo();
     end
 end
+
 local function ws_combo(id,slot)
     ensure_slot_ws(slot);
     local current=slot_ws[slot]~='' and slot_ws[slot] or 'None';
