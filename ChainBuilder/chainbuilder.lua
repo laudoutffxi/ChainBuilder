@@ -1,6 +1,6 @@
 addon.name = 'chainbuilder';
 addon.author = 'Laudout';
-addon.version = '2.4.0';
+addon.version = '2.5.1';
 addon.desc = 'ChainBuilder skillchain calculator.';
 addon.link = '';
 
@@ -85,6 +85,7 @@ local links = {
     ['Detonation>Compression']='Gravitation',
     ['Transfixion>Scission']='Distortion',
     ['Induration>Reverberation']='Fragmentation',
+    ['Detonation>Scission']='Scission',
 
     -- Level 2
     ['Gravitation>Fragmentation']='Fragmentation',
@@ -443,21 +444,22 @@ end
 
 
 local function close_with(active, entry)
-    
-    local active_props = {};
-    if type(active) == 'table' then
-        active_props = active;
-    elseif active then
-        active_props = { active };
-    end
+    local active_props = type(active) == 'table' and active or { active };
+    local results, seen = {}, {};
 
-    for _, closer_prop in ipairs(entry[2] or {}) do
-        for _, opener_prop in ipairs(active_props) do
+    for _, opener_prop in ipairs(active_props) do
+        for _, closer_prop in ipairs(entry[2] or {}) do
             local result = links[opener_prop .. '>' .. closer_prop];
-            if result then return result, closer_prop, opener_prop; end
+            if result and not seen[result] then
+                seen[result] = true;
+                results[#results + 1] = result;
+            end
         end
     end
-    return nil, nil, nil;
+
+    if #results == 0 then return nil, nil, nil; end
+    if #results == 1 then return results[1], nil, nil; end
+    return results, nil, nil;
 end
 
 local function initial_property(entry)
@@ -627,8 +629,8 @@ end
 
 -- Ordered calculator UI. Kept separate from the skillchain data above.
 local slot_count={2};
-local slot_weapons={state.weapon,state.closer_weapon,'Club','Dagger'};
-local slot_ws={'','','',''};
+local slot_weapons={state.weapon,state.closer_weapon};
+local slot_ws={'',''};
 
 local function find_ws_entry(weapon,name)
     for _,e in ipairs(ws[weapon] or {}) do if e[1]==name then return e end end
@@ -682,19 +684,26 @@ local function calculate_selected_chain()
     for i=1,slot_count[1] do ensure_slot_ws(i) end
     local opener=find_ws_entry(slot_weapons[1],slot_ws[1]);
     if not opener then return {},nil,1 end
-    local path={slot_ws[1]}; local active=initial_property(opener);
+
+    local path={slot_ws[1]};
+    local active=initial_property(opener);
     if not active then return path,nil,1 end
+
     local results={};
     for step=2,slot_count[1] do
         local e=find_ws_entry(slot_weapons[step],slot_ws[step]);
         if not e then return path,results,step end
         path[#path+1]=slot_ws[step];
-        local result=close_with(active,e); results[step]=result;
+
+        local result=close_with(active,e);
         if not result then return path,results,step end
+
         active=result;
+        results[step]=(type(result)=='table') and result[1] or result;
     end
     return path,results,nil
 end
+
 local function opener_prop(i)
     local e=find_ws_entry(slot_weapons[i],slot_ws[i]);
     return e and e[2] and e[2][1] or nil
@@ -706,124 +715,78 @@ ashita.events.register('d3d_present','skillchains_present_cb',function()
     local path,results,failed=calculate_selected_chain();
 
     push_style();
-    imgui.SetNextWindowSize({674,473},ImGuiCond_Always);
+    imgui.SetNextWindowSize({674,473},ImGuiCond_FirstUseEver);
     imgui.SetNextWindowBgAlpha(.99);
-    local flags=bit.bor(ImGuiWindowFlags_NoTitleBar,ImGuiWindowFlags_NoCollapse,ImGuiWindowFlags_NoResize,ImGuiWindowFlags_NoScrollbar,ImGuiWindowFlags_NoScrollWithMouse);
+    local flags=bit.bor(ImGuiWindowFlags_NoTitleBar,ImGuiWindowFlags_NoCollapse,ImGuiWindowFlags_NoScrollbar,ImGuiWindowFlags_NoScrollWithMouse);
 
     if imgui.Begin('CHAINBUILDER##Fantasy21',state.visible,flags) then
-        -- Header panel. Remove child padding so the artwork fills the
-        -- bordered header instead of sitting inside a second large inset.
         imgui.PushStyleVar(ImGuiStyleVar_WindowPadding,{1,1});
         if imgui.BeginChild('##header',{0,174},true,ImGuiWindowFlags_NoScrollbar) then
-            local banner_tex = load_banner();
-            if banner_tex ~= nil then
+            local banner_tex=load_banner();
+            if banner_tex~=nil then
                 imgui.SetCursorPos({1,1});
-                imgui.Image(to_texture_id(banner_tex), {658,170});
+                imgui.Image(to_texture_id(banner_tex),{658,170});
             else
-                -- Safe fallback if the PNG is missing or fails to load.
-                tc(COLORS.gold,'CHAINBUILDER');
-                imgui.SameLine();
-                tc(COLORS.cyan,' SKILLCHAIN CALCULATOR');
+                tc(COLORS.gold,'CHAINBUILDER'); imgui.SameLine(); tc(COLORS.cyan,' SKILLCHAIN CALCULATOR');
             end
             imgui.EndChild();
         end
         imgui.PopStyleVar();
         imgui.Dummy({0,2});
 
-
-
-        if imgui.BeginChild('##setup',{0,136},true) then
+        -- Setup-only layout. This child scrolls, allowing any number of steps.
+        if imgui.BeginChild('##setup',{0,0},true) then
             header('1','CHAIN SETUP');
-            -- Compact fixed columns matching the approved layout:
-            -- number | weapon | weapon skill | result
             tc(COLORS.muted,'#');
-            imgui.SameLine(32);  tc(COLORS.muted,'WEAPON');
+            imgui.SameLine(32); tc(COLORS.muted,'WEAPON');
             imgui.SameLine(198); tc(COLORS.muted,'WEAPON SKILL');
             imgui.SameLine(486); tc(COLORS.muted,'RESULT');
 
             for i=1,slot_count[1] do
-                -- Same baseline: 01/02 now line up with the dropdown itself.
                 tc(COLORS.gold,string.format('%02d',i));
-                imgui.SameLine(32);
-                imgui.PushItemWidth(146);
-                weapon_combo('##weapon'..i,i);
-                imgui.PopItemWidth();
-
-                imgui.SameLine(198);
-                imgui.PushItemWidth(268);
-                ws_combo('##ws'..i,i);
-                imgui.PopItemWidth();
-
+                imgui.SameLine(32); imgui.PushItemWidth(146); weapon_combo('##weapon'..i,i); imgui.PopItemWidth();
+                imgui.SameLine(198); imgui.PushItemWidth(268); ws_combo('##ws'..i,i); imgui.PopItemWidth();
                 imgui.SameLine(486);
                 local p=(i==1) and nil or (results and results[i]);
-                if p then tc(prop_color(p),p) else tc(COLORS.muted,'--') end
+                if p then tc(prop_color(p),p)
+                elseif failed and i>=failed then tc(COLORS.red,'--')
+                else tc(COLORS.muted,'--') end
             end
 
-            imgui.Spacing();
-            if slot_count[1]<4 and button('+ ADD STEP',{112,25}) then slot_count[1]=slot_count[1]+1; ensure_slot_ws(slot_count[1]) end
+            imgui.Spacing(); imgui.Separator(); imgui.Spacing();
+
+            if button('+ ADD STEP',{112,25}) then
+                local n=slot_count[1]+1;
+                slot_count[1]=n;
+                slot_weapons[n]=slot_weapons[n-1] or 'Sword';
+                slot_ws[n]='';
+                ensure_slot_ws(n);
+            end
             if slot_count[1]>2 then
                 imgui.SameLine();
-                if button('- REMOVE',{105,25}) then slot_count[1]=slot_count[1]-1 end
+                if button('- REMOVE',{105,25}) then
+                    slot_weapons[slot_count[1]]=nil;
+                    slot_ws[slot_count[1]]=nil;
+                    slot_count[1]=slot_count[1]-1;
+                end
             end
             imgui.SameLine();
             if button('CLEAR',{82,25}) then
-                slot_count[1]=2; slot_weapons={state.weapon,state.closer_weapon,'Club','Dagger'}; slot_ws={'','','',''};
+                slot_count[1]=2;
+                slot_weapons={state.weapon,state.closer_weapon};
+                slot_ws={'',''};
                 for i=1,2 do ensure_slot_ws(i) end
-            end
-            imgui.EndChild();
-        end
-
-        imgui.Dummy({0,2});
-        if imgui.BeginChild('##preview',{0,142},true) then
-            header('2','CHAIN PREVIEW');
-
-            -- Simple two-row preview.  Keep normal ImGui flow so Ashita does not
-            -- get confused by absolute cursor positioning.
-            tc(COLORS.muted,'STEP');
-            imgui.SameLine(54);  tc(COLORS.muted,'WEAPON');
-            imgui.SameLine(205); tc(COLORS.muted,'WEAPON SKILL');
-            imgui.SameLine(485); tc(COLORS.muted,'CREATES');
-
-            for i=1,#path do
-                tc(COLORS.gold,string.format('%02d',i));
-
-                imgui.SameLine(54);
-                tc(COLORS.cyan_soft,slot_weapons[i]);
-
-                imgui.SameLine(205);
-                tc(COLORS.white,path[i]);
-
-                -- The opener does not need an element/result displayed in preview.
-                -- Only Step 2 onward shows the skillchain created.
-                if i > 1 then
-                    imgui.SameLine(485);
-                    local p=results and results[i] or nil;
-                    if p then
-                        tc(prop_color(p),string.upper(p));
-                    else
-                        tc(COLORS.muted,'--');
-                    end
-                end
             end
 
             imgui.Spacing();
-            imgui.Separator();
-
-            local final=(results and results[#path]) or nil;
+            local final=results and results[slot_count[1]] or nil;
             if failed then
-                tc(COLORS.red,'NO SKILLCHAIN');
-                imgui.SameLine(205);
-                tc(COLORS.muted,'BREAKS AT STEP '..tostring(failed));
+                tc(COLORS.red,'NO SKILLCHAIN'); imgui.SameLine(); tc(COLORS.muted,'Breaks at step '..tostring(failed));
             elseif final then
-                tc(COLORS.gold,'FINAL SKILLCHAIN');
-                imgui.SameLine(205);
-                tc(prop_color(final),string.upper(final));
-            else
-                tc(COLORS.muted,'Select weapon skills above to build a chain.');
+                tc(COLORS.gold,'FINAL:'); imgui.SameLine(); tc(prop_color(final),string.upper(final));
             end
             imgui.EndChild();
         end
-
     end
     imgui.End();
     pop_style();
