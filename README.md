@@ -13,6 +13,6 @@ skillchains.
 -   `/sc` --- Open or close ChainBuilder.
 -   `/sc show` --- Show the ChainBuilder window.
 -   `/sc hide` --- Hide the ChainBuilder window.
--   
+  
 
 You can also use `/chainbuilder` in place of `/sc`.
