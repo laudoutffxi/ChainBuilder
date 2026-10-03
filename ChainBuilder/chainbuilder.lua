@@ -1,6 +1,6 @@
 addon.name = 'chainbuilder';
 addon.author = 'Laudout';
-addon.version = '2.5.1';
+addon.version = '2.6.0';
 addon.desc = 'ChainBuilder skillchain calculator.';
 addon.link = '';
 
@@ -590,43 +590,6 @@ end);
 
 
 
-local COLORS = {
-    window={0.004,0.010,0.022,0.985}, panel={0.008,0.024,0.045,0.985},
-    panel2={0.012,0.042,0.075,0.985}, border={0.055,0.50,0.94,0.95},
-    border_soft={0.055,0.22,0.40,0.90}, gold={0.96,0.72,0.25,1},
-    button={0.015,0.085,0.155,1}, button_hov={0.025,0.19,0.34,1},
-    button_act={0.03,0.31,0.54,1}, cyan={0.20,0.82,1,1},
-    cyan_soft={0.45,0.76,0.96,1}, white={0.94,0.97,1,1},
-    muted={0.48,0.60,0.72,1}, red={1,.30,.30,1},
-};
-local PROPERTY_COLORS = {
-    Light={1,.93,.18,1}, ['Light II']={1,.93,.18,1}, Darkness={.82,.35,1,1}, ['Darkness II']={.82,.35,1,1},
-    Fragmentation={.25,.72,1,1}, Distortion={.20,.90,1,1}, Fusion={1,.40,.10,1}, Gravitation={.86,.64,.26,1},
-    Liquefaction={1,.30,.18,1}, Induration={.30,.70,1,1}, Detonation={.20,1,.72,1}, Scission={1,.68,.20,1},
-    Reverberation={.55,.30,1,1}, Transfixion={1,.90,.42,1}, Compression={.25,1,.72,1}, Impaction={.72,.84,1,1},
-};
-local function tc(c,t) imgui.TextColored(c,tostring(t or '')); end
-local function prop_color(n) return PROPERTY_COLORS[n] or COLORS.white; end
-
-local function push_style()
-    imgui.PushStyleColor(ImGuiCol_WindowBg,COLORS.window); imgui.PushStyleColor(ImGuiCol_ChildBg,COLORS.panel);
-    imgui.PushStyleColor(ImGuiCol_Border,COLORS.border); imgui.PushStyleColor(ImGuiCol_Separator,COLORS.border_soft);
-    imgui.PushStyleColor(ImGuiCol_Button,COLORS.button); imgui.PushStyleColor(ImGuiCol_ButtonHovered,COLORS.button_hov);
-    imgui.PushStyleColor(ImGuiCol_ButtonActive,COLORS.button_act); imgui.PushStyleColor(ImGuiCol_Header,COLORS.button);
-    imgui.PushStyleColor(ImGuiCol_HeaderHovered,COLORS.button_hov); imgui.PushStyleColor(ImGuiCol_HeaderActive,COLORS.button_act);
-    imgui.PushStyleColor(ImGuiCol_Text,COLORS.white);
-    imgui.PushStyleVar(ImGuiStyleVar_WindowRounding,7); imgui.PushStyleVar(ImGuiStyleVar_ChildRounding,5);
-    imgui.PushStyleVar(ImGuiStyleVar_FrameRounding,4); imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize,1);
-    imgui.PushStyleVar(ImGuiStyleVar_ChildBorderSize,1); imgui.PushStyleVar(ImGuiStyleVar_FrameBorderSize,1);
-    imgui.PushStyleVar(ImGuiStyleVar_WindowPadding,{6,5}); imgui.PushStyleVar(ImGuiStyleVar_FramePadding,{8,4});
-    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing,{5,2});
-end
-local function pop_style() imgui.PopStyleVar(9); imgui.PopStyleColor(11); end
-local function button(label,size) return imgui.Button(label,size); end
-local function header(n,title)
-    tc(COLORS.gold,n..'.'); imgui.SameLine(); tc(COLORS.cyan,title); imgui.Separator();
-end
-
 -- Ordered calculator UI. Kept separate from the skillchain data above.
 local slot_count={2};
 local slot_weapons={state.weapon,state.closer_weapon};
@@ -709,84 +672,451 @@ local function opener_prop(i)
     return e and e[2] and e[2][1] or nil
 end
 
-ashita.events.register('d3d_present','skillchains_present_cb',function()
+--------------------------------------------------------------------------------
+-- UI
+--------------------------------------------------------------------------------
+
+local COLORS = {
+    window      = { 0.012, 0.020, 0.040, 0.97 },
+    card        = { 0.030, 0.050, 0.090, 0.96 },
+    card_line   = { 0.35, 0.60, 1.00, 0.14 },
+    frame       = { 0.020, 0.075, 0.140, 1.00 },
+    frame_hov   = { 0.035, 0.130, 0.240, 1.00 },
+    frame_act   = { 0.045, 0.190, 0.340, 1.00 },
+    border      = { 0.25, 0.62, 1.00, 0.35 },
+    gold        = { 0.98, 0.76, 0.32, 1.00 },
+    cyan        = { 0.32, 0.82, 1.00, 1.00 },
+    white       = { 0.94, 0.97, 1.00, 1.00 },
+    subtext     = { 0.70, 0.78, 0.88, 1.00 },
+    muted       = { 0.48, 0.58, 0.70, 1.00 },
+    faint       = { 0.30, 0.38, 0.50, 1.00 },
+    red         = { 1.00, 0.36, 0.36, 1.00 },
+    track       = { 1.00, 1.00, 1.00, 0.07 },
+};
+
+-- Elemental colours: each property takes the colour of its element(s).
+local PROPERTY_COLORS = {
+    Transfixion   = { 0.96, 0.95, 0.86, 1 }, -- light
+    Compression   = { 0.62, 0.55, 0.80, 1 }, -- dark
+    Liquefaction  = { 1.00, 0.40, 0.30, 1 }, -- fire
+    Scission      = { 0.92, 0.78, 0.44, 1 }, -- earth
+    Reverberation = { 0.36, 0.56, 1.00, 1 }, -- water
+    Detonation    = { 0.42, 0.92, 0.50, 1 }, -- wind
+    Induration    = { 0.62, 0.93, 1.00, 1 }, -- ice
+    Impaction     = { 0.90, 0.50, 0.98, 1 }, -- thunder
+    Fusion        = { 1.00, 0.62, 0.26, 1 }, -- fire / light
+    Fragmentation = { 0.70, 0.58, 1.00, 1 }, -- wind / thunder
+    Gravitation   = { 0.80, 0.52, 0.42, 1 }, -- earth / dark
+    Distortion    = { 0.28, 0.82, 0.86, 1 }, -- water / ice
+    Light         = { 1.00, 0.94, 0.55, 1 },
+    ['Light II']  = { 1.00, 0.94, 0.55, 1 },
+    Darkness      = { 0.66, 0.40, 1.00, 1 },
+    ['Darkness II'] = { 0.66, 0.40, 1.00, 1 },
+};
+
+local PROPERTY_LEVEL = {
+    Fusion = 2, Fragmentation = 2, Gravitation = 2, Distortion = 2,
+    Light = 3, Darkness = 3, ['Light II'] = 4, ['Darkness II'] = 4,
+};
+
+local CORNERS_ALL = ImDrawFlags_RoundCornersAll or ImDrawCornerFlags_All or 15;
+
+local function prop_color(n) return PROPERTY_COLORS[n] or COLORS.white; end
+local function prop_level(n) return PROPERTY_LEVEL[n] or 1; end
+
+local function rgba(c, a) return { c[1], c[2], c[3], a or c[4] }; end
+local function col(c, a) return imgui.GetColorU32(rgba(c, a)); end
+local function pulse(speed) return (math.sin(os.clock() * (speed or 3.0)) + 1.0) * 0.5; end
+local function line_h() return tonumber(imgui.GetTextLineHeight()) or 13; end
+local function text_w(s) return tonumber((imgui.CalcTextSize(s))) or 0; end
+
+local function draw_text(x, y, color, text, scale)
+    local dl = imgui.GetWindowDrawList();
+    if scale ~= nil and scale ~= 1 and type(imgui.GetFont) == 'function' and type(imgui.GetFontSize) == 'function' then
+        local ok = pcall(function()
+            dl:AddText(imgui.GetFont(), imgui.GetFontSize() * scale, { x, y }, col(color), text);
+        end);
+        if ok then return; end
+    end
+    dl:AddText({ x, y }, col(color), text);
+end
+
+local function draw_glow_text(x, y, color, text, scale, strength)
+    local a = 0.22 * (strength or 1);
+    for _, o in ipairs({ { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } }) do
+        draw_text(x + o[1], y + o[2], rgba(color, a), text, scale);
+    end
+    draw_text(x, y, color, text, scale);
+end
+
+local function draw_dot(cx, cy, r, color, glow)
+    local dl = imgui.GetWindowDrawList();
+    if glow ~= nil and glow > 0 then
+        dl:AddCircleFilled({ cx, cy }, r * 2.4, col(color, 0.10 * glow), 20);
+        dl:AddCircleFilled({ cx, cy }, r * 1.6, col(color, 0.22 * glow), 20);
+    end
+    dl:AddCircleFilled({ cx, cy }, r, col(color), 16);
+end
+
+local function pill_w(text) return text_w(text) + 16; end
+
+local function draw_pill(x, y, text, color, fill_alpha)
+    local dl = imgui.GetWindowDrawList();
+    local w, h = pill_w(text), line_h() + 5;
+    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(color, fill_alpha or 0.15), h * 0.5);
+    dl:AddRect({ x, y }, { x + w, y + h }, col(color, 0.55), h * 0.5, CORNERS_ALL, 1.0);
+    dl:AddText({ x + 8, y + 2.5 }, col(color), text);
+    return w, h;
+end
+
+-- Custom pill button. Returns true when clicked.
+local function fancy_button(id, label, w, color)
+    local x, y = imgui.GetCursorScreenPos();
+    local h = line_h() + 12;
+    local clicked = imgui.InvisibleButton(id, { w, h });
+    local hov = imgui.IsItemHovered();
+    local act = type(imgui.IsItemActive) == 'function' and imgui.IsItemActive() or false;
+    local dl = imgui.GetWindowDrawList();
+    local fill = act and 0.32 or (hov and 0.22 or 0.12);
+    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(color, fill), 6);
+    dl:AddRect({ x, y }, { x + w, y + h }, col(color, hov and 0.85 or 0.45), 6, CORNERS_ALL, 1.0);
+    dl:AddText({ x + (w - text_w(label)) * 0.5, y + 6 }, col(hov and COLORS.white or color), label);
+    if hov then imgui.SetMouseCursor(ImGuiMouseCursor_Hand); end
+    return clicked;
+end
+
+local function section_title(title, color)
+    local dl = imgui.GetWindowDrawList();
+    local x, y = imgui.GetCursorScreenPos();
+    local w = imgui.GetContentRegionAvail();
+    local lh = line_h();
+    dl:AddRectFilled({ x, y + 2 }, { x + 3, y + lh - 2 }, col(color), 1.5);
+    dl:AddText({ x + 10, y }, col(color), title);
+    local after = x + 10 + text_w(title) + 10;
+    if x + w > after then
+        dl:AddRectFilledMultiColor({ after, y + lh * 0.5 }, { x + w, y + lh * 0.5 + 1 },
+            col(color, 0.45), col(color, 0.0), col(color, 0.0), col(color, 0.45));
+    end
+    imgui.Dummy({ w, lh });
+    imgui.Dummy({ 0, 2 });
+end
+
+--------------------------------------------------------------------------------
+-- Banner
+--------------------------------------------------------------------------------
+
+local function render_banner()
+    local dl = imgui.GetWindowDrawList();
+    local x, y = imgui.GetCursorScreenPos();
+    local w = imgui.GetContentRegionAvail();
+    local h;
+
+    local tex = load_banner();
+    if tex ~= nil then
+        h = math.floor(w * banner_size[2] / banner_size[1]);
+        imgui.Image(to_texture_id(tex), { w, h });
+        -- Soft fade into the window and a thin frame.
+        dl:AddRectFilledMultiColor({ x, y + h - 26 }, { x + w, y + h },
+            col(COLORS.window, 0.0), col(COLORS.window, 0.0), col(COLORS.window, 0.85), col(COLORS.window, 0.85));
+        dl:AddRect({ x, y }, { x + w, y + h }, col(COLORS.border, 0.5), 6, CORNERS_ALL, 1.0);
+    else
+        h = 64;
+        dl:AddRectFilled({ x, y }, { x + w, y + h }, col(COLORS.card), 8);
+        dl:AddRectFilledMultiColor({ x, y }, { x + w, y + h },
+            col(COLORS.cyan, 0.16), col(COLORS.cyan, 0.0), col(COLORS.cyan, 0.0), col(COLORS.cyan, 0.05));
+        dl:AddRect({ x, y }, { x + w, y + h }, col(COLORS.border, 0.6), 8, CORNERS_ALL, 1.0);
+        draw_glow_text(x + 16, y + 12, COLORS.gold, 'CHAINBUILDER', 1.6, 1.0);
+        dl:AddText({ x + 18, y + 14 + line_h() * 1.6 }, col(COLORS.cyan), 'SKILLCHAIN CALCULATOR');
+        imgui.Dummy({ w, h });
+    end
+
+    -- Close button floating on the banner's top-right corner.
+    local s = line_h() + 6;
+    local bx, by = x + w - s - 8, y + 8;
+    local after_x, after_y = imgui.GetCursorScreenPos();
+    imgui.SetCursorScreenPos({ bx, by });
+    if imgui.InvisibleButton('##cb_close', { s, s }) then
+        state.visible[1] = false;
+    end
+    local hov = imgui.IsItemHovered();
+    dl:AddCircleFilled({ bx + s * 0.5, by + s * 0.5 }, s * 0.5, col({ 0, 0, 0, 1 }, hov and 0.75 or 0.45), 20);
+    local m, c = s * 0.32, hov and COLORS.white or COLORS.subtext;
+    dl:AddLine({ bx + m, by + m }, { bx + s - m, by + s - m }, col(c), 1.6);
+    dl:AddLine({ bx + s - m, by + m }, { bx + m, by + s - m }, col(c), 1.6);
+    if hov then imgui.SetMouseCursor(ImGuiMouseCursor_Hand); end
+    imgui.SetCursorScreenPos({ after_x, after_y });
+    imgui.Dummy({ 0, 4 });
+end
+
+--------------------------------------------------------------------------------
+-- Chain steps
+--------------------------------------------------------------------------------
+
+local COL_WEAPON_X, COL_WEAPON_W = 44, 150;
+local COL_WS_X, COL_WS_W = 202, 216;
+
+local function step_status(i, results, failed)
+    if i == 1 then
+        if failed == 1 then return 'NO PROPERTIES', COLORS.red, nil; end
+        return 'OPENER', COLORS.muted, nil;
+    end
+    local r = results and results[i];
+    if r then return r:upper(), prop_color(r), r; end
+    if failed and i == failed then return 'NO CHAIN', COLORS.red, nil; end
+    return '--', COLORS.faint, nil;
+end
+
+local function render_step(i, results, failed, prev_node)
+    local dl = imgui.GetWindowDrawList();
+    local x, y = imgui.GetCursorScreenPos();
+    local w = imgui.GetContentRegionAvail();
+    local lh = line_h();
+    local fh = lh + 8;
+    local h = 10 + fh + 6 + lh + 10;
+
+    local label, tone, result = step_status(i, results, failed);
+    local broken = failed ~= nil and i == failed;
+    local dimmed = failed ~= nil and i > failed;
+
+    -- Card
+    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(COLORS.card, dimmed and 0.55 or nil), 8);
+    if broken then
+        dl:AddRect({ x, y }, { x + w, y + h }, col(COLORS.red, 0.55), 8, CORNERS_ALL, 1.0);
+    elseif result ~= nil then
+        dl:AddRect({ x, y }, { x + w, y + h }, col(tone, 0.35), 8, CORNERS_ALL, 1.0);
+        dl:AddRectFilledMultiColor({ x + w * 0.55, y + 1 }, { x + w - 1, y + h - 1 },
+            col(tone, 0.0), col(tone, 0.10), col(tone, 0.10), col(tone, 0.0));
+    else
+        dl:AddRect({ x, y }, { x + w, y + h }, col(COLORS.card_line), 8, CORNERS_ALL, 1.0);
+    end
+
+    -- Timeline node + connector from the previous step
+    local nx, ny, nr = x + 22, y + 10 + fh * 0.5, 12;
+    if prev_node ~= nil then
+        local link = result ~= nil and tone or (broken and COLORS.red or COLORS.faint);
+        dl:AddRectFilled({ nx - 1.5, prev_node + nr }, { nx + 1.5, ny - nr }, col(link, result and 0.9 or 0.5));
+    end
+    local node_col = result ~= nil and tone or (broken and COLORS.red or (i == 1 and COLORS.gold or COLORS.muted));
+    if result ~= nil then dl:AddCircleFilled({ nx, ny }, nr + 5, col(node_col, 0.16 * (0.6 + pulse(2.5) * 0.4)), 24); end
+    dl:AddCircleFilled({ nx, ny }, nr, col(COLORS.window), 24);
+    dl:AddCircle({ nx, ny }, nr, col(node_col, dimmed and 0.4 or 0.9), 24, 1.5);
+    local num = ('%d'):format(i);
+    dl:AddText({ nx - text_w(num) * 0.5, ny - lh * 0.5 }, col(dimmed and COLORS.faint or node_col), num);
+
+    -- Combos
+    imgui.SetCursorScreenPos({ x + COL_WEAPON_X, y + 10 });
+    imgui.PushItemWidth(COL_WEAPON_W); weapon_combo('##weapon' .. i, i); imgui.PopItemWidth();
+    imgui.SetCursorScreenPos({ x + COL_WS_X, y + 10 });
+    imgui.PushItemWidth(COL_WS_W); ws_combo('##ws' .. i, i); imgui.PopItemWidth();
+
+    -- Status / result pill
+    local px = x + w - pill_w(label) - 12;
+    local py = y + 10 + (fh - (lh + 5)) * 0.5;
+    if result ~= nil then
+        local lv = ('LV%d'):format(prop_level(result));
+        draw_pill(px, py, label, tone, 0.18 + pulse(2.5) * 0.08);
+        dl:AddText({ px - text_w(lv) - 8, py + 2.5 }, col(tone, 0.75), lv);
+    else
+        draw_pill(px, py, label, tone, 0.08);
+    end
+
+    -- Property chips for the selected weapon skill
+    local cx, cy = x + COL_WEAPON_X + 2, y + 10 + fh + 6;
+    local entry = find_ws_entry(slot_weapons[i], slot_ws[i]);
+    local props = entry and entry[2] or {};
+    if #props == 0 then
+        dl:AddText({ cx, cy }, col(COLORS.faint), 'No skillchain properties');
+    else
+        for _, p in ipairs(props) do
+            local pc = prop_color(p);
+            draw_dot(cx + 3.5, cy + lh * 0.5, 3.5, rgba(pc, dimmed and 0.4 or 1));
+            dl:AddText({ cx + 12, cy }, col(pc, dimmed and 0.45 or 0.95), p);
+            cx = cx + 12 + text_w(p) + 16;
+        end
+    end
+
+    imgui.SetCursorScreenPos({ x, y + h });
+    imgui.Dummy({ w, 6 });
+    return ny;
+end
+
+--------------------------------------------------------------------------------
+-- Result card
+--------------------------------------------------------------------------------
+
+local result_card_h = nil;
+
+local function render_result(path, results, failed)
+    local dl = imgui.GetWindowDrawList();
+    local x, y = imgui.GetCursorScreenPos();
+    local w = imgui.GetContentRegionAvail();
+    local lh = line_h();
+
+    local final = (not failed) and results and results[slot_count[1]] or nil;
+    local tone = final and prop_color(final) or (failed and COLORS.red or COLORS.muted);
+    local h = result_card_h or (lh * 4 + 30);
+
+    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(COLORS.card), 10);
+    dl:AddRectFilledMultiColor({ x + 1, y + 1 }, { x + w - 1, y + h - 1 },
+        col(tone, 0.16), col(tone, 0.02), col(tone, 0.02), col(tone, 0.08));
+    local glow = final and (0.55 + pulse(2.0) * 0.45) or 1.0;
+    dl:AddRect({ x, y }, { x + w, y + h }, col(tone, 0.55 * glow), 10, CORNERS_ALL, 1.2);
+
+    local ix, iy = x + 16, y + 12;
+    if final then
+        dl:AddText({ ix, iy }, col(COLORS.muted), 'SKILLCHAIN');
+        local steps = ('%d STEPS  -  LEVEL %d'):format(slot_count[1], prop_level(final));
+        dl:AddText({ x + w - 16 - text_w(steps), iy }, col(tone, 0.85), steps);
+        draw_glow_text(ix, iy + lh + 4, tone, final:upper(), 1.8, glow);
+        iy = iy + lh + 4 + lh * 1.8 + 8;
+    elseif failed then
+        dl:AddText({ ix, iy }, col(COLORS.muted), 'SKILLCHAIN');
+        draw_glow_text(ix, iy + lh + 4, COLORS.red, 'NO SKILLCHAIN', 1.8, 0.6);
+        iy = iy + lh + 4 + lh * 1.8 + 8;
+        local why;
+        if failed == 1 then
+            why = ('%s has no skillchain properties to open with.'):format(path[1] or 'The opener');
+        else
+            local active = failed == 2 and (find_ws_entry(slot_weapons[1], slot_ws[1]) or { nil, {} })[2] or { results[failed - 1] };
+            why = ('Breaks at step %d: %s does not chain off %s.'):format(
+                failed, slot_ws[failed] or '?', table.concat(active or {}, ' / '));
+        end
+        dl:AddText({ ix, iy }, col(COLORS.subtext), why);
+        iy = iy + lh + 6;
+    end
+
+    -- Path, coloured by the chain each step creates (wraps across lines).
+    local px, py = ix, iy;
+    local right = x + w - 16;
+    for i, name in ipairs(path or {}) do
+        local c = (i == 1) and COLORS.white or ((results and results[i]) and prop_color(results[i]) or COLORS.faint);
+        local seg = name;
+        local sw = text_w(seg);
+        if px + sw > right and px > ix then px, py = ix, py + lh + 4; end
+        dl:AddText({ px, py }, col(c), seg);
+        px = px + sw;
+        if i < #path then
+            local arrow = '  >  ';
+            if px + text_w(arrow) > right then px, py = ix, py + lh + 4; end
+            dl:AddText({ px, py }, col(COLORS.faint), arrow);
+            px = px + text_w(arrow);
+        end
+    end
+    py = py + lh;
+
+    result_card_h = (py - y) + 14;
+    imgui.Dummy({ w, result_card_h });
+end
+
+--------------------------------------------------------------------------------
+-- Window
+--------------------------------------------------------------------------------
+
+local function push_style()
+    imgui.PushStyleColor(ImGuiCol_WindowBg, COLORS.window);
+    imgui.PushStyleColor(ImGuiCol_ChildBg, { 0, 0, 0, 0 });
+    imgui.PushStyleColor(ImGuiCol_Border, COLORS.border);
+    imgui.PushStyleColor(ImGuiCol_PopupBg, { 0.020, 0.040, 0.075, 0.98 });
+    imgui.PushStyleColor(ImGuiCol_FrameBg, COLORS.frame);
+    imgui.PushStyleColor(ImGuiCol_FrameBgHovered, COLORS.frame_hov);
+    imgui.PushStyleColor(ImGuiCol_FrameBgActive, COLORS.frame_act);
+    imgui.PushStyleColor(ImGuiCol_Button, COLORS.frame);
+    imgui.PushStyleColor(ImGuiCol_ButtonHovered, COLORS.frame_hov);
+    imgui.PushStyleColor(ImGuiCol_ButtonActive, COLORS.frame_act);
+    imgui.PushStyleColor(ImGuiCol_Header, { 0.10, 0.36, 0.62, 0.55 });
+    imgui.PushStyleColor(ImGuiCol_HeaderHovered, { 0.14, 0.46, 0.78, 0.60 });
+    imgui.PushStyleColor(ImGuiCol_HeaderActive, { 0.18, 0.54, 0.90, 0.70 });
+    imgui.PushStyleColor(ImGuiCol_Text, COLORS.white);
+    imgui.PushStyleColor(ImGuiCol_ScrollbarBg, { 0, 0, 0, 0 });
+    imgui.PushStyleColor(ImGuiCol_ScrollbarGrab, { 0.32, 0.82, 1.00, 0.25 });
+    imgui.PushStyleColor(ImGuiCol_ScrollbarGrabHovered, { 0.32, 0.82, 1.00, 0.45 });
+    imgui.PushStyleColor(ImGuiCol_ScrollbarGrabActive, { 0.32, 0.82, 1.00, 0.65 });
+    imgui.PushStyleColor(ImGuiCol_ResizeGrip, { 0.32, 0.82, 1.00, 0.10 });
+    imgui.PushStyleColor(ImGuiCol_ResizeGripHovered, { 0.32, 0.82, 1.00, 0.35 });
+    imgui.PushStyleColor(ImGuiCol_ResizeGripActive, { 0.32, 0.82, 1.00, 0.60 });
+
+    imgui.PushStyleVar(ImGuiStyleVar_WindowRounding, 10);
+    imgui.PushStyleVar(ImGuiStyleVar_ChildRounding, 6);
+    imgui.PushStyleVar(ImGuiStyleVar_FrameRounding, 5);
+    imgui.PushStyleVar(ImGuiStyleVar_PopupRounding, 6);
+    imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1);
+    imgui.PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0);
+    imgui.PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1);
+    imgui.PushStyleVar(ImGuiStyleVar_WindowPadding, { 8, 8 });
+    imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 8, 4 });
+    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 6, 4 });
+    imgui.PushStyleVar(ImGuiStyleVar_ScrollbarSize, 8);
+    imgui.PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 6);
+end
+
+local function pop_style()
+    imgui.PopStyleVar(12);
+    imgui.PopStyleColor(21);
+end
+
+ashita.events.register('d3d_present', 'skillchains_present_cb', function()
     if not state.visible[1] then return end
-    for i=1,slot_count[1] do ensure_slot_ws(i) end
-    local path,results,failed=calculate_selected_chain();
+    for i = 1, slot_count[1] do ensure_slot_ws(i) end
+    local path, results, failed = calculate_selected_chain();
 
     push_style();
-    imgui.SetNextWindowSize({674,473},ImGuiCond_FirstUseEver);
-    imgui.SetNextWindowBgAlpha(.99);
-    local flags=bit.bor(ImGuiWindowFlags_NoTitleBar,ImGuiWindowFlags_NoCollapse,ImGuiWindowFlags_NoScrollbar,ImGuiWindowFlags_NoScrollWithMouse);
+    imgui.SetNextWindowSize({ 690, 640 }, ImGuiCond_FirstUseEver);
+    local flags = bit.bor(ImGuiWindowFlags_NoTitleBar, ImGuiWindowFlags_NoCollapse,
+        ImGuiWindowFlags_NoScrollbar, ImGuiWindowFlags_NoScrollWithMouse);
 
-    if imgui.Begin('CHAINBUILDER##Fantasy21',state.visible,flags) then
-        imgui.PushStyleVar(ImGuiStyleVar_WindowPadding,{1,1});
-        if imgui.BeginChild('##header',{0,174},true,ImGuiWindowFlags_NoScrollbar) then
-            local banner_tex=load_banner();
-            if banner_tex~=nil then
-                imgui.SetCursorPos({1,1});
-                imgui.Image(to_texture_id(banner_tex),{658,170});
-            else
-                tc(COLORS.gold,'CHAINBUILDER'); imgui.SameLine(); tc(COLORS.cyan,' SKILLCHAIN CALCULATOR');
-            end
-            imgui.EndChild();
+    if imgui.Begin('CHAINBUILDER##Fantasy21', state.visible, flags) then
+        render_banner();
+
+        -- The setup area scrolls, so any number of steps fits.
+        imgui.BeginChild('##setup', { 0, 0 }, true);
+
+        section_title('CHAIN SETUP', COLORS.cyan);
+
+        -- Column labels
+        local lx, ly = imgui.GetCursorScreenPos();
+        local lw = imgui.GetContentRegionAvail();
+        local dl = imgui.GetWindowDrawList();
+        dl:AddText({ lx + COL_WEAPON_X, ly }, col(COLORS.faint), 'WEAPON');
+        dl:AddText({ lx + COL_WS_X, ly }, col(COLORS.faint), 'WEAPON SKILL');
+        dl:AddText({ lx + lw - 12 - text_w('RESULT'), ly }, col(COLORS.faint), 'RESULT');
+        imgui.Dummy({ lw, line_h() });
+
+        local prev_node = nil;
+        for i = 1, slot_count[1] do
+            prev_node = render_step(i, results, failed, prev_node);
         end
-        imgui.PopStyleVar();
-        imgui.Dummy({0,2});
 
-        -- Setup-only layout. This child scrolls, allowing any number of steps.
-        if imgui.BeginChild('##setup',{0,0},true) then
-            header('1','CHAIN SETUP');
-            tc(COLORS.muted,'#');
-            imgui.SameLine(32); tc(COLORS.muted,'WEAPON');
-            imgui.SameLine(198); tc(COLORS.muted,'WEAPON SKILL');
-            imgui.SameLine(486); tc(COLORS.muted,'RESULT');
-
-            for i=1,slot_count[1] do
-                tc(COLORS.gold,string.format('%02d',i));
-                imgui.SameLine(32); imgui.PushItemWidth(146); weapon_combo('##weapon'..i,i); imgui.PopItemWidth();
-                imgui.SameLine(198); imgui.PushItemWidth(268); ws_combo('##ws'..i,i); imgui.PopItemWidth();
-                imgui.SameLine(486);
-                local p=(i==1) and nil or (results and results[i]);
-                if p then tc(prop_color(p),p)
-                elseif failed and i>=failed then tc(COLORS.red,'--')
-                else tc(COLORS.muted,'--') end
-            end
-
-            imgui.Spacing(); imgui.Separator(); imgui.Spacing();
-
-            if button('+ ADD STEP',{112,25}) then
-                local n=slot_count[1]+1;
-                slot_count[1]=n;
-                slot_weapons[n]=slot_weapons[n-1] or 'Sword';
-                slot_ws[n]='';
-                ensure_slot_ws(n);
-            end
-            if slot_count[1]>2 then
-                imgui.SameLine();
-                if button('- REMOVE',{105,25}) then
-                    slot_weapons[slot_count[1]]=nil;
-                    slot_ws[slot_count[1]]=nil;
-                    slot_count[1]=slot_count[1]-1;
-                end
-            end
+        -- Controls
+        imgui.Dummy({ 0, 2 });
+        if fancy_button('##cb_add', '+  ADD STEP', 120, COLORS.cyan) then
+            local n = slot_count[1] + 1;
+            slot_count[1] = n;
+            slot_weapons[n] = slot_weapons[n - 1] or 'Sword';
+            slot_ws[n] = '';
+            ensure_slot_ws(n);
+        end
+        if slot_count[1] > 2 then
             imgui.SameLine();
-            if button('CLEAR',{82,25}) then
-                slot_count[1]=2;
-                slot_weapons={state.weapon,state.closer_weapon};
-                slot_ws={'',''};
-                for i=1,2 do ensure_slot_ws(i) end
+            if fancy_button('##cb_remove', '-  REMOVE', 110, COLORS.gold) then
+                slot_weapons[slot_count[1]] = nil;
+                slot_ws[slot_count[1]] = nil;
+                slot_count[1] = slot_count[1] - 1;
             end
-
-            imgui.Spacing();
-            local final=results and results[slot_count[1]] or nil;
-            if failed then
-                tc(COLORS.red,'NO SKILLCHAIN'); imgui.SameLine(); tc(COLORS.muted,'Breaks at step '..tostring(failed));
-            elseif final then
-                tc(COLORS.gold,'FINAL:'); imgui.SameLine(); tc(prop_color(final),string.upper(final));
-            end
-            imgui.EndChild();
         end
+        imgui.SameLine();
+        if fancy_button('##cb_clear', 'CLEAR', 86, COLORS.red) then
+            slot_count[1] = 2;
+            slot_weapons = { state.weapon, state.closer_weapon };
+            slot_ws = { '', '' };
+            for i = 1, 2 do ensure_slot_ws(i) end
+        end
+
+        imgui.Dummy({ 0, 6 });
+        section_title('RESULT', COLORS.gold);
+        path, results, failed = calculate_selected_chain();
+        render_result(path, results, failed);
+
+        imgui.EndChild();
     end
     imgui.End();
     pop_style();
