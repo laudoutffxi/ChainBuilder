@@ -1,52 +1,12 @@
 addon.name = 'chainbuilder';
 addon.author = 'Laudout';
-addon.version = '2.6.0';
+addon.version = '2.7.0';
 addon.desc = 'ChainBuilder skillchain calculator.';
 addon.link = '';
 
 require 'common';
 
 local imgui = require 'imgui';
-local d3d = require 'd3d8';
-local ffi = require 'ffi';
-
--- ChainBuilder banner - Ashita v4 / D3D8 texture loading.
-local C = ffi.C;
-local d3d8dev = d3d.get_device();
-local banner = nil;
-local banner_size = { 644, 177 };
-
-local function load_banner()
-    if banner ~= nil then return banner; end
-
-    local path = addon.path .. '/images/header.png';
-    local texture_ptr = ffi.new('IDirect3DTexture8*[1]');
-
-    if C.D3DXCreateTextureFromFileA(d3d8dev, path, texture_ptr) ~= C.S_OK then
-        return nil;
-    end
-
-    banner = d3d.gc_safe_release(ffi.cast('IDirect3DTexture8*', texture_ptr[0]));
-    return banner;
-end
-
-local function to_texture_id(texture)
-    if texture == nil then return 0; end
-
-    local ok, id = pcall(function()
-        return tonumber(ffi.cast('uint32_t', texture));
-    end);
-    if ok and type(id) == 'number' then return id; end
-
-    ok, id = pcall(function()
-        return tonumber(ffi.cast('uintptr_t', texture));
-    end);
-    if ok and type(id) == 'number' then return id; end
-
-    return 0;
-end
-
-
 
 --[[
     Commands:
@@ -676,22 +636,26 @@ end
 -- UI
 --------------------------------------------------------------------------------
 
+-- Flat navy, periwinkle accent, thin borders.
 local COLORS = {
-    window      = { 0.012, 0.020, 0.040, 0.97 },
-    card        = { 0.030, 0.050, 0.090, 0.96 },
-    card_line   = { 0.35, 0.60, 1.00, 0.14 },
-    frame       = { 0.020, 0.075, 0.140, 1.00 },
-    frame_hov   = { 0.035, 0.130, 0.240, 1.00 },
-    frame_act   = { 0.045, 0.190, 0.340, 1.00 },
-    border      = { 0.25, 0.62, 1.00, 0.35 },
-    gold        = { 0.98, 0.76, 0.32, 1.00 },
-    cyan        = { 0.32, 0.82, 1.00, 1.00 },
-    white       = { 0.94, 0.97, 1.00, 1.00 },
-    subtext     = { 0.70, 0.78, 0.88, 1.00 },
-    muted       = { 0.48, 0.58, 0.70, 1.00 },
-    faint       = { 0.30, 0.38, 0.50, 1.00 },
-    red         = { 1.00, 0.36, 0.36, 1.00 },
-    track       = { 1.00, 1.00, 1.00, 0.07 },
+    window      = { 0.086, 0.098, 0.145, 1.00 },
+    side        = { 0.067, 0.078, 0.118, 1.00 },
+    card        = { 0.125, 0.145, 0.222, 1.00 },
+    card_line   = { 0.560, 0.620, 1.000, 0.12 },
+    line        = { 0.700, 0.750, 1.000, 0.08 },
+    frame       = { 0.176, 0.196, 0.271, 1.00 },
+    frame_hov   = { 0.220, 0.243, 0.333, 1.00 },
+    frame_act   = { 0.490, 0.557, 1.000, 0.35 },
+    border      = { 0.560, 0.620, 1.000, 0.12 },
+    accent      = { 0.490, 0.557, 1.000, 1.00 },
+    gold        = { 0.94, 0.77, 0.42, 1.00 },
+    cyan        = { 0.490, 0.557, 1.000, 1.00 },   -- (old name) = accent
+    white       = { 0.910, 0.922, 0.957, 1.00 },
+    subtext     = { 0.72, 0.75, 0.84, 1.00 },
+    muted       = { 0.545, 0.576, 0.667, 1.00 },
+    faint       = { 0.36, 0.39, 0.48, 1.00 },
+    red         = { 1.00, 0.45, 0.45, 1.00 },
+    track       = { 1.00, 1.00, 1.00, 0.06 },
 };
 
 -- Elemental colours: each property takes the colour of its element(s).
@@ -741,119 +705,151 @@ local function draw_text(x, y, color, text, scale)
     dl:AddText({ x, y }, col(color), text);
 end
 
+-- (Kept name; flat text now.)
 local function draw_glow_text(x, y, color, text, scale, strength)
-    local a = 0.22 * (strength or 1);
-    for _, o in ipairs({ { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } }) do
-        draw_text(x + o[1], y + o[2], rgba(color, a), text, scale);
-    end
     draw_text(x, y, color, text, scale);
 end
 
 local function draw_dot(cx, cy, r, color, glow)
     local dl = imgui.GetWindowDrawList();
     if glow ~= nil and glow > 0 then
-        dl:AddCircleFilled({ cx, cy }, r * 2.4, col(color, 0.10 * glow), 20);
-        dl:AddCircleFilled({ cx, cy }, r * 1.6, col(color, 0.22 * glow), 20);
+        dl:AddCircleFilled({ cx, cy }, r * 1.9, col(color, 0.12 * glow), 20);
     end
     dl:AddCircleFilled({ cx, cy }, r, col(color), 16);
 end
 
-local function pill_w(text) return text_w(text) + 16; end
+local function pill_w(text) return text_w(text) + 18; end
 
+-- Rounded chip on the frame colour with a thin border; the colour is in a dot and the text.
 local function draw_pill(x, y, text, color, fill_alpha)
     local dl = imgui.GetWindowDrawList();
     local w, h = pill_w(text), line_h() + 5;
-    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(color, fill_alpha or 0.15), h * 0.5);
-    dl:AddRect({ x, y }, { x + w, y + h }, col(color, 0.55), h * 0.5, CORNERS_ALL, 1.0);
-    dl:AddText({ x + 8, y + 2.5 }, col(color), text);
+    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(color, 0.10 + (fill_alpha or 0) * 0.3), h * 0.5);
+    dl:AddRect({ x + 0.5, y + 0.5 }, { x + w - 0.5, y + h - 0.5 }, col(color, 0.35), h * 0.5, CORNERS_ALL, 1.0);
+    dl:AddText({ x + 9, y + 2.5 }, col(color), text);
     return w, h;
 end
 
--- Custom pill button. Returns true when clicked.
-local function fancy_button(id, label, w, color)
+-- Button. accent = true for the main action (filled periwinkle); otherwise a ghost
+-- button whose text takes `color`. Returns true when clicked.
+local function fancy_button(id, label, w, color, accent)
     local x, y = imgui.GetCursorScreenPos();
-    local h = line_h() + 12;
+    local h = line_h() + 10;
     local clicked = imgui.InvisibleButton(id, { w, h });
     local hov = imgui.IsItemHovered();
     local act = type(imgui.IsItemActive) == 'function' and imgui.IsItemActive() or false;
     local dl = imgui.GetWindowDrawList();
-    local fill = act and 0.32 or (hov and 0.22 or 0.12);
-    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(color, fill), 6);
-    dl:AddRect({ x, y }, { x + w, y + h }, col(color, hov and 0.85 or 0.45), 6, CORNERS_ALL, 1.0);
-    dl:AddText({ x + (w - text_w(label)) * 0.5, y + 6 }, col(hov and COLORS.white or color), label);
+    if accent then
+        dl:AddRectFilled({ x, y }, { x + w, y + h }, col(COLORS.accent, act and 0.85 or (hov and 0.70 or 0.55)), 6);
+    else
+        dl:AddRectFilled({ x, y }, { x + w, y + h }, act and col(COLORS.accent, 0.35) or (hov and col(COLORS.frame_hov) or col({ 1, 1, 1, 0.035 })), 6);
+        dl:AddRect({ x + 0.5, y + 0.5 }, { x + w - 0.5, y + h - 0.5 }, col(COLORS.border), 6, CORNERS_ALL, 1.0);
+    end
+    local tc = accent and { 1, 1, 1, 1 } or (hov and COLORS.white or color);
+    dl:AddText({ x + (w - text_w(label)) * 0.5, y + (h - line_h()) * 0.5 }, col(tc), label);
     if hov then imgui.SetMouseCursor(ImGuiMouseCursor_Hand); end
     return clicked;
 end
 
+-- Section caption: small accent text with a hairline to the right edge.
 local function section_title(title, color)
     local dl = imgui.GetWindowDrawList();
     local x, y = imgui.GetCursorScreenPos();
     local w = imgui.GetContentRegionAvail();
     local lh = line_h();
-    dl:AddRectFilled({ x, y + 2 }, { x + 3, y + lh - 2 }, col(color), 1.5);
-    dl:AddText({ x + 10, y }, col(color), title);
-    local after = x + 10 + text_w(title) + 10;
+    dl:AddText({ x, y }, col(color), title);
+    local after = x + text_w(title) + 10;
     if x + w > after then
-        dl:AddRectFilledMultiColor({ after, y + lh * 0.5 }, { x + w, y + lh * 0.5 + 1 },
-            col(color, 0.45), col(color, 0.0), col(color, 0.0), col(color, 0.45));
+        dl:AddRectFilled({ after, y + lh * 0.5 }, { x + w, y + lh * 0.5 + 1 }, col(COLORS.line, 0.18));
     end
     imgui.Dummy({ w, lh });
     imgui.Dummy({ 0, 2 });
 end
 
 --------------------------------------------------------------------------------
--- Banner
+-- Header
 --------------------------------------------------------------------------------
 
-local function render_banner()
+local JOBS = { 'WAR', 'MNK', 'WHM', 'BLM', 'RDM', 'THF', 'PLD', 'DRK', 'BST', 'BRD', 'RNG',
+    'SAM', 'NIN', 'DRG', 'SMN', 'BLU', 'COR', 'PUP', 'DNC', 'SCH', 'GEO', 'RUN' };
+
+-- Character name and jobs ("Laudout", "RDM75/BLM37"), or nil when not logged in.
+local function who_am_i()
+    local ok, name, jobs = pcall(function()
+        local mm = AshitaCore:GetMemoryManager();
+        local n = mm:GetParty():GetMemberName(0);
+        if type(n) ~= 'string' or n == '' then return nil; end
+        local p = mm:GetPlayer();
+        local mj, ml, sj, sl = p:GetMainJob(), p:GetMainJobLevel(), p:GetSubJob(), p:GetSubJobLevel();
+        local j = nil;
+        if JOBS[mj] and (ml or 0) > 0 then
+            j = ('%s%d'):format(JOBS[mj], ml);
+            if JOBS[sj] and (sl or 0) > 0 then j = j .. ('/%s%d'):format(JOBS[sj], sl); end
+        end
+        return n, j;
+    end);
+    if ok then return name, jobs; end
+    return nil;
+end
+
+local TITLE_SCALE = 1.5;
+
+-- Two-tone title, a muted info line (character, jobs) and a ghost close X, with a
+-- hairline underneath.
+local function render_header()
     local dl = imgui.GetWindowDrawList();
     local x, y = imgui.GetCursorScreenPos();
     local w = imgui.GetContentRegionAvail();
-    local h;
+    local lh = line_h();
+    local row_h = math.floor(lh * TITLE_SCALE + 4);
 
-    local tex = load_banner();
-    if tex ~= nil then
-        h = math.floor(w * banner_size[2] / banner_size[1]);
-        imgui.Image(to_texture_id(tex), { w, h });
-        -- Soft fade into the window and a thin frame.
-        dl:AddRectFilledMultiColor({ x, y + h - 26 }, { x + w, y + h },
-            col(COLORS.window, 0.0), col(COLORS.window, 0.0), col(COLORS.window, 0.85), col(COLORS.window, 0.85));
-        dl:AddRect({ x, y }, { x + w, y + h }, col(COLORS.border, 0.5), 6, CORNERS_ALL, 1.0);
+    local ty = y + (row_h - lh * TITLE_SCALE) * 0.5;
+    draw_text(x, ty, COLORS.white, 'CHAIN', TITLE_SCALE);
+    draw_text(x + text_w('CHAIN') * TITLE_SCALE, ty, COLORS.accent, 'BUILDER', TITLE_SCALE);
+
+    -- info line
+    local iy = y + row_h + 1;
+    local sep = '  \194\183  ';
+    local name, jobs = who_am_i();
+    local ix = x;
+    if name then
+        dl:AddText({ ix, iy }, col(COLORS.white), name);
+        ix = ix + text_w(name);
+        local rest = (jobs and (sep .. jobs) or '') .. sep .. 'Skillchain calculator';
+        dl:AddText({ ix, iy }, col(COLORS.muted), rest);
     else
-        h = 64;
-        dl:AddRectFilled({ x, y }, { x + w, y + h }, col(COLORS.card), 8);
-        dl:AddRectFilledMultiColor({ x, y }, { x + w, y + h },
-            col(COLORS.cyan, 0.16), col(COLORS.cyan, 0.0), col(COLORS.cyan, 0.0), col(COLORS.cyan, 0.05));
-        dl:AddRect({ x, y }, { x + w, y + h }, col(COLORS.border, 0.6), 8, CORNERS_ALL, 1.0);
-        draw_glow_text(x + 16, y + 12, COLORS.gold, 'CHAINBUILDER', 1.6, 1.0);
-        dl:AddText({ x + 18, y + 14 + line_h() * 1.6 }, col(COLORS.cyan), 'SKILLCHAIN CALCULATOR');
-        imgui.Dummy({ w, h });
+        dl:AddText({ ix, iy }, col(COLORS.muted), 'Skillchain calculator');
     end
 
-    -- Close button floating on the banner's top-right corner.
-    local s = line_h() + 6;
-    local bx, by = x + w - s - 8, y + 8;
+    -- ghost close X
+    local s = lh + 4;
+    local bx, by = x + w - s, y + (row_h - s) * 0.5;
     local after_x, after_y = imgui.GetCursorScreenPos();
     imgui.SetCursorScreenPos({ bx, by });
     if imgui.InvisibleButton('##cb_close', { s, s }) then
         state.visible[1] = false;
     end
     local hov = imgui.IsItemHovered();
-    dl:AddCircleFilled({ bx + s * 0.5, by + s * 0.5 }, s * 0.5, col({ 0, 0, 0, 1 }, hov and 0.75 or 0.45), 20);
-    local m, c = s * 0.32, hov and COLORS.white or COLORS.subtext;
-    dl:AddLine({ bx + m, by + m }, { bx + s - m, by + s - m }, col(c), 1.6);
-    dl:AddLine({ bx + s - m, by + m }, { bx + m, by + s - m }, col(c), 1.6);
+    if hov then dl:AddRectFilled({ bx, by }, { bx + s, by + s }, col({ 1, 1, 1, 0.06 }), 5); end
+    local m, c = s * 0.32, hov and COLORS.white or COLORS.muted;
+    dl:AddLine({ bx + m, by + m }, { bx + s - m, by + s - m }, col(c), 1.4);
+    dl:AddLine({ bx + s - m, by + m }, { bx + m, by + s - m }, col(c), 1.4);
     if hov then imgui.SetMouseCursor(ImGuiMouseCursor_Hand); end
     imgui.SetCursorScreenPos({ after_x, after_y });
-    imgui.Dummy({ 0, 4 });
+
+    local h = row_h + 1 + lh + 8;
+    local wx, wy = imgui.GetWindowPos();
+    local ww = imgui.GetWindowSize();
+    dl:AddRectFilled({ wx + 1, y + h }, { wx + ww - 1, y + h + 1 }, col(COLORS.line));
+    imgui.Dummy({ w, h + 6 });
 end
 
 --------------------------------------------------------------------------------
 -- Chain steps
 --------------------------------------------------------------------------------
 
-local COL_WEAPON_X, COL_WEAPON_W = 44, 150;
-local COL_WS_X, COL_WS_W = 202, 216;
+local COL_WEAPON_X, COL_WEAPON_W = 46, 170;
+local COL_WS_X, COL_WS_W = 226, 240;
 
 local function step_status(i, results, failed)
     if i == 1 then
@@ -879,16 +875,9 @@ local function render_step(i, results, failed, prev_node)
     local dimmed = failed ~= nil and i > failed;
 
     -- Card
-    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(COLORS.card, dimmed and 0.55 or nil), 8);
-    if broken then
-        dl:AddRect({ x, y }, { x + w, y + h }, col(COLORS.red, 0.55), 8, CORNERS_ALL, 1.0);
-    elseif result ~= nil then
-        dl:AddRect({ x, y }, { x + w, y + h }, col(tone, 0.35), 8, CORNERS_ALL, 1.0);
-        dl:AddRectFilledMultiColor({ x + w * 0.55, y + 1 }, { x + w - 1, y + h - 1 },
-            col(tone, 0.0), col(tone, 0.10), col(tone, 0.10), col(tone, 0.0));
-    else
-        dl:AddRect({ x, y }, { x + w, y + h }, col(COLORS.card_line), 8, CORNERS_ALL, 1.0);
-    end
+    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(COLORS.card, dimmed and 0.55 or nil), 6);
+    local edge = broken and col(COLORS.red, 0.45) or (result ~= nil and col(tone, 0.40) or col(COLORS.card_line));
+    dl:AddRect({ x + 0.5, y + 0.5 }, { x + w - 0.5, y + h - 0.5 }, edge, 6, CORNERS_ALL, 1.0);
 
     -- Timeline node + connector from the previous step
     local nx, ny, nr = x + 22, y + 10 + fh * 0.5, 12;
@@ -897,9 +886,8 @@ local function render_step(i, results, failed, prev_node)
         dl:AddRectFilled({ nx - 1.5, prev_node + nr }, { nx + 1.5, ny - nr }, col(link, result and 0.9 or 0.5));
     end
     local node_col = result ~= nil and tone or (broken and COLORS.red or (i == 1 and COLORS.gold or COLORS.muted));
-    if result ~= nil then dl:AddCircleFilled({ nx, ny }, nr + 5, col(node_col, 0.16 * (0.6 + pulse(2.5) * 0.4)), 24); end
-    dl:AddCircleFilled({ nx, ny }, nr, col(COLORS.window), 24);
-    dl:AddCircle({ nx, ny }, nr, col(node_col, dimmed and 0.4 or 0.9), 24, 1.5);
+    dl:AddCircleFilled({ nx, ny }, nr, col(COLORS.side), 24);
+    dl:AddCircle({ nx, ny }, nr, col(node_col, dimmed and 0.4 or 0.9), 24, 1.3);
     local num = ('%d'):format(i);
     dl:AddText({ nx - text_w(num) * 0.5, ny - lh * 0.5 }, col(dimmed and COLORS.faint or node_col), num);
 
@@ -914,10 +902,10 @@ local function render_step(i, results, failed, prev_node)
     local py = y + 10 + (fh - (lh + 5)) * 0.5;
     if result ~= nil then
         local lv = ('LV%d'):format(prop_level(result));
-        draw_pill(px, py, label, tone, 0.18 + pulse(2.5) * 0.08);
+        draw_pill(px, py, label, tone, 0.15);
         dl:AddText({ px - text_w(lv) - 8, py + 2.5 }, col(tone, 0.75), lv);
     else
-        draw_pill(px, py, label, tone, 0.08);
+        draw_pill(px, py, label, tone, 0);
     end
 
     -- Property chips for the selected weapon skill
@@ -956,23 +944,21 @@ local function render_result(path, results, failed)
     local tone = final and prop_color(final) or (failed and COLORS.red or COLORS.muted);
     local h = result_card_h or (lh * 4 + 30);
 
-    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(COLORS.card), 10);
-    dl:AddRectFilledMultiColor({ x + 1, y + 1 }, { x + w - 1, y + h - 1 },
-        col(tone, 0.16), col(tone, 0.02), col(tone, 0.02), col(tone, 0.08));
-    local glow = final and (0.55 + pulse(2.0) * 0.45) or 1.0;
-    dl:AddRect({ x, y }, { x + w, y + h }, col(tone, 0.55 * glow), 10, CORNERS_ALL, 1.2);
+    dl:AddRectFilled({ x, y }, { x + w, y + h }, col(COLORS.card), 6);
+    local glow = 1.0;
+    dl:AddRect({ x + 0.5, y + 0.5 }, { x + w - 0.5, y + h - 0.5 }, col(tone, (final or failed) and 0.45 or 0.12), 6, CORNERS_ALL, 1.0);
 
     local ix, iy = x + 16, y + 12;
     if final then
         dl:AddText({ ix, iy }, col(COLORS.muted), 'SKILLCHAIN');
         local steps = ('%d STEPS  -  LEVEL %d'):format(slot_count[1], prop_level(final));
         dl:AddText({ x + w - 16 - text_w(steps), iy }, col(tone, 0.85), steps);
-        draw_glow_text(ix, iy + lh + 4, tone, final:upper(), 1.8, glow);
-        iy = iy + lh + 4 + lh * 1.8 + 8;
+        draw_glow_text(ix, iy + lh + 4, tone, final:upper(), 1.5, glow);
+        iy = iy + lh + 4 + lh * 1.5 + 8;
     elseif failed then
         dl:AddText({ ix, iy }, col(COLORS.muted), 'SKILLCHAIN');
-        draw_glow_text(ix, iy + lh + 4, COLORS.red, 'NO SKILLCHAIN', 1.8, 0.6);
-        iy = iy + lh + 4 + lh * 1.8 + 8;
+        draw_glow_text(ix, iy + lh + 4, COLORS.red, 'NO SKILLCHAIN', 1.5, 0.6);
+        iy = iy + lh + 4 + lh * 1.5 + 8;
         local why;
         if failed == 1 then
             why = ('%s has no skillchain properties to open with.'):format(path[1] or 'The opener');
@@ -1012,47 +998,84 @@ end
 -- Window
 --------------------------------------------------------------------------------
 
-local function push_style()
-    imgui.PushStyleColor(ImGuiCol_WindowBg, COLORS.window);
-    imgui.PushStyleColor(ImGuiCol_ChildBg, { 0, 0, 0, 0 });
-    imgui.PushStyleColor(ImGuiCol_Border, COLORS.border);
-    imgui.PushStyleColor(ImGuiCol_PopupBg, { 0.020, 0.040, 0.075, 0.98 });
-    imgui.PushStyleColor(ImGuiCol_FrameBg, COLORS.frame);
-    imgui.PushStyleColor(ImGuiCol_FrameBgHovered, COLORS.frame_hov);
-    imgui.PushStyleColor(ImGuiCol_FrameBgActive, COLORS.frame_act);
-    imgui.PushStyleColor(ImGuiCol_Button, COLORS.frame);
-    imgui.PushStyleColor(ImGuiCol_ButtonHovered, COLORS.frame_hov);
-    imgui.PushStyleColor(ImGuiCol_ButtonActive, COLORS.frame_act);
-    imgui.PushStyleColor(ImGuiCol_Header, { 0.10, 0.36, 0.62, 0.55 });
-    imgui.PushStyleColor(ImGuiCol_HeaderHovered, { 0.14, 0.46, 0.78, 0.60 });
-    imgui.PushStyleColor(ImGuiCol_HeaderActive, { 0.18, 0.54, 0.90, 0.70 });
-    imgui.PushStyleColor(ImGuiCol_Text, COLORS.white);
-    imgui.PushStyleColor(ImGuiCol_ScrollbarBg, { 0, 0, 0, 0 });
-    imgui.PushStyleColor(ImGuiCol_ScrollbarGrab, { 0.32, 0.82, 1.00, 0.25 });
-    imgui.PushStyleColor(ImGuiCol_ScrollbarGrabHovered, { 0.32, 0.82, 1.00, 0.45 });
-    imgui.PushStyleColor(ImGuiCol_ScrollbarGrabActive, { 0.32, 0.82, 1.00, 0.65 });
-    imgui.PushStyleColor(ImGuiCol_ResizeGrip, { 0.32, 0.82, 1.00, 0.10 });
-    imgui.PushStyleColor(ImGuiCol_ResizeGripHovered, { 0.32, 0.82, 1.00, 0.35 });
-    imgui.PushStyleColor(ImGuiCol_ResizeGripActive, { 0.32, 0.82, 1.00, 0.60 });
+-- Segoe UI 17 from the Windows Fonts folder (nothing bundled); if it can't be
+-- loaded the game's ImGui font is kept.
+local font = nil;
+local function load_font()
+    font = nil;
+    if type(imgui.AddFontFromFileTTF) ~= 'function' then return; end
+    local dir = (os.getenv('WINDIR') or 'C:\\Windows') .. '\\Fonts\\';
+    for _, name in ipairs({ 'segoeui.ttf', 'SegUIVar.ttf' }) do
+        local f = io.open(dir .. name, 'rb');
+        if f then
+            f:close();
+            local ok, fnt = pcall(imgui.AddFontFromFileTTF, dir .. name, 17);
+            if ok and fnt then font = fnt; return; end
+        end
+    end
+end
 
-    imgui.PushStyleVar(ImGuiStyleVar_WindowRounding, 10);
-    imgui.PushStyleVar(ImGuiStyleVar_ChildRounding, 6);
-    imgui.PushStyleVar(ImGuiStyleVar_FrameRounding, 5);
-    imgui.PushStyleVar(ImGuiStyleVar_PopupRounding, 6);
-    imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1);
-    imgui.PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0);
-    imgui.PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1);
-    imgui.PushStyleVar(ImGuiStyleVar_WindowPadding, { 8, 8 });
-    imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 8, 4 });
-    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 6, 4 });
-    imgui.PushStyleVar(ImGuiStyleVar_ScrollbarSize, 8);
-    imgui.PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 6);
+-- Newer ImGui (fonts with LegacySize) wants a size; older builds don't.
+local function push_font()
+    if font == nil then return false; end
+    local ok;
+    if font.LegacySize ~= nil then ok = pcall(imgui.PushFont, font, 17); else ok = pcall(imgui.PushFont, font); end
+    return ok and true or false;
+end
+
+-- Pushed only when the ImGui build has the slot, and counted so pops always match.
+local pushed = { c = 0, v = 0, f = false };
+local function pc(idx, c) if idx ~= nil then imgui.PushStyleColor(idx, c); pushed.c = pushed.c + 1; end end
+local function pv(idx, v) if idx ~= nil then imgui.PushStyleVar(idx, v); pushed.v = pushed.v + 1; end end
+
+local function push_style()
+    pushed.c, pushed.v = 0, 0;
+    pc(ImGuiCol_WindowBg, COLORS.window);
+    pc(ImGuiCol_ChildBg, { 0, 0, 0, 0 });
+    pc(ImGuiCol_Border, COLORS.border);
+    pc(ImGuiCol_PopupBg, { 0.075, 0.079, 0.092, 0.99 });
+    pc(ImGuiCol_FrameBg, COLORS.frame);
+    pc(ImGuiCol_FrameBgHovered, COLORS.frame_hov);
+    pc(ImGuiCol_FrameBgActive, COLORS.frame_act);
+    pc(ImGuiCol_Button, { 1, 1, 1, 0.035 });
+    pc(ImGuiCol_ButtonHovered, rgba(COLORS.accent, 0.55));
+    pc(ImGuiCol_ButtonActive, rgba(COLORS.accent, 0.85));
+    pc(ImGuiCol_Header, COLORS.frame_hov);
+    pc(ImGuiCol_HeaderHovered, rgba(COLORS.accent, 0.35));
+    pc(ImGuiCol_HeaderActive, rgba(COLORS.accent, 0.55));
+    pc(ImGuiCol_Text, COLORS.white);
+    pc(ImGuiCol_ScrollbarBg, { 0, 0, 0, 0 });
+    pc(ImGuiCol_ScrollbarGrab, { 1, 1, 1, 0.08 });
+    pc(ImGuiCol_ScrollbarGrabHovered, { 1, 1, 1, 0.16 });
+    pc(ImGuiCol_ScrollbarGrabActive, { 1, 1, 1, 0.22 });
+    pc(ImGuiCol_ResizeGrip, { 1, 1, 1, 0.06 });
+    pc(ImGuiCol_ResizeGripHovered, rgba(COLORS.accent, 0.55));
+    pc(ImGuiCol_ResizeGripActive, rgba(COLORS.accent, 0.85));
+
+    pv(ImGuiStyleVar_WindowRounding, 8);
+    pv(ImGuiStyleVar_ChildRounding, 6);
+    pv(ImGuiStyleVar_FrameRounding, 5);
+    pv(ImGuiStyleVar_PopupRounding, 6);
+    pv(ImGuiStyleVar_WindowBorderSize, 1);
+    pv(ImGuiStyleVar_ChildBorderSize, 0);
+    pv(ImGuiStyleVar_FrameBorderSize, 1);
+    pv(ImGuiStyleVar_WindowPadding, { 14, 12 });
+    pv(ImGuiStyleVar_FramePadding, { 8, 4 });
+    pv(ImGuiStyleVar_ItemSpacing, { 8, 6 });
+    pv(ImGuiStyleVar_ScrollbarSize, 6);
+    pv(ImGuiStyleVar_ScrollbarRounding, 6);
+    pushed.f = push_font();
 end
 
 local function pop_style()
-    imgui.PopStyleVar(12);
-    imgui.PopStyleColor(21);
+    if pushed.f then imgui.PopFont(); end
+    imgui.PopStyleVar(pushed.v);
+    imgui.PopStyleColor(pushed.c);
 end
+
+ashita.events.register('load', 'chainbuilder_load_cb', function()
+    load_font();
+end);
 
 ashita.events.register('d3d_present', 'skillchains_present_cb', function()
     if not state.visible[1] then return end
@@ -1060,17 +1083,17 @@ ashita.events.register('d3d_present', 'skillchains_present_cb', function()
     local path, results, failed = calculate_selected_chain();
 
     push_style();
-    imgui.SetNextWindowSize({ 690, 640 }, ImGuiCond_FirstUseEver);
+    imgui.SetNextWindowSize({ 740, 660 }, ImGuiCond_FirstUseEver);
     local flags = bit.bor(ImGuiWindowFlags_NoTitleBar, ImGuiWindowFlags_NoCollapse,
         ImGuiWindowFlags_NoScrollbar, ImGuiWindowFlags_NoScrollWithMouse);
 
     if imgui.Begin('CHAINBUILDER##Fantasy21', state.visible, flags) then
-        render_banner();
+        render_header();
 
         -- The setup area scrolls, so any number of steps fits.
-        imgui.BeginChild('##setup', { 0, 0 }, true);
+        imgui.BeginChild('##setup', { 0, 0 }, false);
 
-        section_title('CHAIN SETUP', COLORS.cyan);
+        section_title('CHAIN SETUP', COLORS.accent);
 
         -- Column labels
         local lx, ly = imgui.GetCursorScreenPos();
@@ -1088,7 +1111,7 @@ ashita.events.register('d3d_present', 'skillchains_present_cb', function()
 
         -- Controls
         imgui.Dummy({ 0, 2 });
-        if fancy_button('##cb_add', '+  ADD STEP', 120, COLORS.cyan) then
+        if fancy_button('##cb_add', '+  ADD STEP', 130, COLORS.accent, true) then
             local n = slot_count[1] + 1;
             slot_count[1] = n;
             slot_weapons[n] = slot_weapons[n - 1] or 'Sword';
@@ -1097,14 +1120,14 @@ ashita.events.register('d3d_present', 'skillchains_present_cb', function()
         end
         if slot_count[1] > 2 then
             imgui.SameLine();
-            if fancy_button('##cb_remove', '-  REMOVE', 110, COLORS.gold) then
+            if fancy_button('##cb_remove', '-  REMOVE', 120, COLORS.white) then
                 slot_weapons[slot_count[1]] = nil;
                 slot_ws[slot_count[1]] = nil;
                 slot_count[1] = slot_count[1] - 1;
             end
         end
         imgui.SameLine();
-        if fancy_button('##cb_clear', 'CLEAR', 86, COLORS.red) then
+        if fancy_button('##cb_clear', 'CLEAR', 96, COLORS.red) then
             slot_count[1] = 2;
             slot_weapons = { state.weapon, state.closer_weapon };
             slot_ws = { '', '' };
@@ -1112,7 +1135,7 @@ ashita.events.register('d3d_present', 'skillchains_present_cb', function()
         end
 
         imgui.Dummy({ 0, 6 });
-        section_title('RESULT', COLORS.gold);
+        section_title('RESULT', COLORS.accent);
         path, results, failed = calculate_selected_chain();
         render_result(path, results, failed);
 
